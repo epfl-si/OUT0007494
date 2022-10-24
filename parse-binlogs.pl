@@ -19,20 +19,33 @@ open(STDIN, "gzip -dc '$gzipped_binlog_file' | mysqlbinlog - |") ||
 
 my $usedb;
 while($_ = nextRecord()) {
-  my $features = {};
   if (m/^use `(.*)`/m) {
     $usedb = $1;
   }
-  $features->{db} = $usedb;
+  next unless ($usedb || "") eq $dbname;
+
+  next unless m/\n.*\n/m;                   # Empty record
+  next if m|/\* added by mysqlbinlog \*/|;  # Doing whatever meta
+
+  my $features = { db => $usedb, getFeatures($_) };
+
+  warn "----- BEGIN SUSPICIOUS RECORD -----\n$_\n----- END SUSPICIOUS RECORD -----\n" unless $features->{sql};
+  print encode_json($features), "\n";
+}
+
+sub getFeatures {
+  local $_ = shift;
+  my @features;
 
   if (m|^SET TIMESTAMP=(\d+)|m) {
-    $features->{timestamp} = $1;
+    push(@features, timestamp => $1);
   }
 
-  if (m{^((?:insert|update|delete).*)/[*]![*]/;}ms) {
-    $features->{sql} = $1;
+  if (m{^((?:begin|insert|update|delete).*)/[*]![*]/;}msi) {
+    push(@features, sql => $1);
   }
-  print encode_json($features), "\n" if ($features->{db} || "") eq $dbname;
+
+  return @features;
 }
 
 ###################################################################
