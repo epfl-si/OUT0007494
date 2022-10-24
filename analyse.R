@@ -3,6 +3,8 @@ library(RSQLite)
 library(jsonlite)
 library(stringr)
 library(lubridate)
+library(ggplot2)
+library(scales)
 
 load.sql <- function(gzip_sql_path, sqlite3_db_path) {
     gzip_sql_path <- path.expand(gzip_sql_path)
@@ -48,6 +50,24 @@ binlogs <- list.files(path = binlogs_dir, pattern = "mysql-bin.*\\.gz$") %>%
             load.binlogs(paste(binlogs_dir, ., sep="/")))
     }) %>%
     ungroup %>%
-    mutate(time = timestamp %>% as.integer %>% as_datetime,
+    mutate(time = timestamp %>%
+               as.integer %>%
+               as_datetime %>%
+               with_tz(tzone = "Europe/Zurich"),
            sql_operation = word(sql, 1))
 
+binlogs %>%
+    mutate(Kind = case_when(
+               sql_operation == "update" ~
+                   (case_when(
+                              grepl("photo_ts", sql) ~ "Update on photo_ts",
+                              TRUE                   ~ "Update other")),
+               TRUE                      ~ "other") %>%
+           factor %>%
+           fct_relevel("other", after = Inf)) %>%
+    ggplot(aes(fill=Kind, x=time)) +
+    geom_histogram(binwidth = 15 * 60, position = "stack") +
+    ggtitle("Classification of SQL writes in binlog") +
+    xlab("Time (CEST)") +
+    ylab("Count per 15 minutes") +
+    scale_x_datetime(breaks = breaks_width("4 hours"))
