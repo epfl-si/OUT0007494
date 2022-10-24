@@ -1,6 +1,8 @@
 library(tidyverse)
 library(RSQLite)
 library(jsonlite)
+library(stringr)
+library(lubridate)
 
 load.sql <- function(gzip_sql_path, sqlite3_db_path) {
     gzip_sql_path <- path.expand(gzip_sql_path)
@@ -45,5 +47,7 @@ binlogs <- list.files(path = binlogs_dir, pattern = "mysql-bin.*\\.gz$") %>%
             basename = .,
             load.binlogs(paste(binlogs_dir, ., sep="/")))
     }) %>%
-    ungroup
+    ungroup %>%
+    mutate(time = timestamp %>% as.integer %>% as_datetime,
+           sql_operation = word(sql, 1))
 
