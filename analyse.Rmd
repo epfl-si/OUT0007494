@@ -128,3 +128,20 @@ binlogs %>%
     ylab("Count per 15 minutes") +
     scale_x_datetime(breaks = breaks_width("4 hours"))
 ```
+
+```{r analyze.damage}
+damage <-
+    binlogs %>%
+    filter({
+        kind <- classify.binlog(.)
+        kind == "Line 3665 damage" | kind == "Repair"
+    }) %>%
+    extract(sql, c("photo_ext", "photo_ts", "sciper"),
+            "update common set photo_ext='([[:alnum:]]*)',\\s*photo_ts=(?:'?([0-9]*)'?|NULL)\\s*where\\s*sciper='?([0-9]+)'?",
+            remove = FALSE)
+
+# Just to control that &§$^%+= regex:
+damage %>% group_by(photo_ext) %>% tally
+```
+
+Le dommage ligne 3665 de `/opt/dinfo/lib/perl/Cadi/People.pm` est indiscernable dans les binlogs des gens qui revertent manuellement à leur photo CAMIPRO en ligne 3543.
