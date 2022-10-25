@@ -150,14 +150,12 @@ La caractérisation des écritures dommageables, faites par des moyens automatiq
 ```{r analyze.damage}
 damage <-
     binlogs %>%
-    filter({
-        kind <- classify.binlog(.)
-        kind == "Dommages de (ou comme) la ligne 3665" | kind == "Script de réparation"
-    }) %>%
+    mutate(kind = classify.binlog(.)) %>%
+    filter(kind == "Dommages de (ou comme) la ligne 3665" | kind == "Script de réparation") %>%
     extract(sql, c("photo_ext", "photo_ts", "sciper"),
             "update common set photo_ext='([[:alnum:]]*)',\\s*photo_ts=(?:'?([0-9]*)'?|NULL)\\s*where\\s*sciper='?([0-9]+)'?",
             remove = FALSE)
 
 # Just to control that &§$^%+= regex:
-damage %>% group_by(photo_ext) %>% tally
+damage %>% group_by(kind) %>% tally
 ```
