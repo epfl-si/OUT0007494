@@ -2,3 +2,5 @@
 *.jsonp
 *.txt
 analyse.html
+/*.sql
+/delete_symlinks.sh

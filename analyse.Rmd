@@ -10,6 +10,7 @@ knitr::opts_chunk$set(echo=FALSE, include = FALSE, warning=FALSE, message=FALSE)
 ```
 
 ```{r libraries}
+library(readr)
 library(tidyverse)
 library(glue)
 library(RSQLite)
@@ -148,14 +149,66 @@ La caractérisation des écritures dommageables, faites par des moyens automatiq
   - Faux négatifs : aucun 
 
 ```{r analyze.damage}
+
+as.photo_ts_int <- function(photo_ts_char) {
+    photo_ts_int <- suppressWarnings(as.integer(photo_ts_char, -1))
+    case_when(
+         photo_ts_char == "''"     ~   as.integer(0),
+        photo_ts_char == "NULL"   ~   (as.integer(NA)),
+        TRUE                      ~   photo_ts_int)
+}
+as.photo_ts_int(repair$photo_ts_damage)
+
 damage <-
     binlogs %>%
     mutate(kind = classify.binlog(.)) %>%
     filter(kind == "Dommages de (ou comme) la ligne 3665" | kind == "Script de réparation") %>%
     extract(sql, c("photo_ext", "photo_ts", "sciper"),
-            "update common set photo_ext='([[:alnum:]]*)',\\s*photo_ts=(?:'?([0-9]*)'?|NULL)\\s*where\\s*sciper='?([0-9]+)'?",
-            remove = FALSE)
+            "update common set photo_ext='([[:alnum:]]*)',\\s*photo_ts=('?[0-9]*'?|NULL)\\s*where\\s*sciper='?([0-9]+)'?",
+            remove = FALSE) %>%
+    mutate(photo_ts = as.photo_ts_int(photo_ts))
 
 # Just to control that &§$^%+= regex:
 damage %>% group_by(kind) %>% tally
+
+quote_nullproof <- function(photo_ts_int) {
+    photo_ts_char <- as.character(photo_ts_int)
+    case_when(
+        is.na(photo_ts_int) ~ 'NULL',
+        TRUE  ~  photo_ts_char)
+}
+
+quote_nullproof_where <- function(photo_ts_int) {
+    case_when(
+        is.na(photo_ts_int)       ~ 'IS NULL',
+        TRUE ~ paste("= ", photo_ts_int, sep=""))
+}
+
+repair <- damage %>% group_by(sciper) %>%
+    filter(row_number()==n()) %>%
+    left_join(db_7h11, by = c("sciper"), suffix = c("_damage", "_7h11"), copy = TRUE) %>%
+    rename(sql_damage = sql) %>%
+    filter(!(photo_ext_7h11 == photo_ext_damage & photo_ts_7h11 == photo_ts_damage)) %>%
+    mutate(photo_ts_7h11_sql = quote_nullproof(photo_ts_7h11),
+           photo_ts_damage_where = quote_nullproof_where(photo_ts_damage)) %>%
+    mutate(sql_repair_where = str_interp("photo_ext = '${photo_ext_damage}' AND photo_ts ${photo_ts_damage_where} AND sciper = '${sciper}'")) %>%
+    mutate(sql_repair_where_or = paste("(", sql_repair_where, ") OR", sep = "")) %>%
+    mutate(
+        sql_repair = str_interp(
+                  "UPDATE common SET photo_ext = '${photo_ext_7h11}', photo_ts = ${photo_ts_7h11_sql} WHERE ${sql_repair_where} AND 'repair' = 'repair';"),
+           delete_symlink = str_interp(
+               "rm /var/www/vhosts/people.epfl.ch/htdocs/private/common/photos/links/${sciper}.jpg"))
+
+repair %>%
+    pull(sql_repair) %>%
+    write_lines("repair.sql")
+
+repair %>%
+    pull(sql_repair_where_or) %>%
+    write_lines("select.sql")
+
+repair %>%
+    pull(delete_symlink) %>%
+    write_lines("delete_symlinks.sh")
+
 ```
